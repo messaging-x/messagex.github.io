@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -388,9 +389,55 @@ body {
   flex-direction: column;
 }
 
+/* MESSAGE WRAPPER — holds bubble + delete btn */
+.message-wrapper {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.message-wrapper.me {
+  flex-direction: row-reverse;
+}
+
+.message-wrapper.other {
+  flex-direction: row;
+}
+
+/* DELETE BUTTON */
+.delete-msg-btn {
+  opacity: 0;
+  flex-shrink: 0;
+  align-self: center;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #fff;
+  background: #000;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  padding: 0;
+  line-height: 1;
+}
+
+.message-wrapper:hover .delete-msg-btn {
+  opacity: 1;
+}
+
+.delete-msg-btn:hover {
+  background: #fff;
+  color: #000;
+}
+
+/* MESSAGE BUBBLE */
 .message {
   max-width: 70%;
-  margin-bottom: 8px;
   padding: 8px 10px;
   border: 2px solid #fff;
   background: #000;
@@ -398,13 +445,11 @@ body {
 }
 
 .message.me {
-  margin-left: auto;
   background: #fff;
   color: #000;
 }
 
 .message.other {
-  margin-right: auto;
   background: #000;
   color: #fff;
 }
@@ -649,6 +694,71 @@ body {
   .chat-area { flex: 1; }
   .message { max-width: 85%; }
 }
+
+/* TOAST NOTIFICATIONS */
+#toast-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  background: #000;
+  border: 2px solid #fff;
+  color: #fff;
+  padding: 10px 14px;
+  min-width: 220px;
+  max-width: 300px;
+  pointer-events: all;
+  animation: toast-in 0.18s ease forwards;
+  cursor: default;
+}
+
+.toast.toast-out {
+  animation: toast-out 0.22s ease forwards;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toast-out {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(12px); }
+}
+
+.toast-header {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #fff;
+  margin-bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.toast-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #aaa;
+}
+
+.toast-body {
+  font-size: 13px;
+  color: #ccc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
   </style>
 </head>
 <body>
@@ -717,6 +827,9 @@ body {
         <button id="new-chat-btn">
           <span>+</span> New chat / group
         </button>
+        <button id="notif-btn" style="margin-top:6px; font-size:11px;">
+          &#128276; Enable notifications
+        </button>
       </div>
     </div>
 
@@ -763,6 +876,22 @@ body {
     </div><!-- end .chat-area -->
   </div><!-- end #main-container -->
 </div><!-- end #app -->
+
+<!-- Notification permission modal -->
+<div id="notif-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:99998; align-items:center; justify-content:center;">
+  <div style="background:#000; border:2px solid #fff; padding:28px 24px; max-width:340px; width:90%; text-align:center;">
+    <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.18em; color:#aaa; margin-bottom:10px;">MessageX</div>
+    <div style="font-size:18px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:10px;">Stay in the loop</div>
+    <div style="font-size:13px; color:#ccc; line-height:1.6; margin-bottom:22px;">Get notified when someone messages you — even when the tab is in the background.</div>
+    <div style="display:flex; gap:8px;">
+      <button id="notif-modal-allow" style="flex:1; padding:10px 0; border:2px solid #fff; background:#fff; color:#000; font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:0.1em; cursor:pointer;">Allow</button>
+      <button id="notif-modal-skip" style="flex:1; padding:10px 0; border:2px solid #fff; background:#000; color:#fff; font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:0.1em; cursor:pointer;">Skip</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast notification container -->
+<div id="toast-container"></div>
 
 <!-- Lightbox overlay -->
 <div id="lightbox">
@@ -867,13 +996,117 @@ body {
 
   document.getElementById('logout-btn').onclick = () => location.reload();
 
+  // ─── NOTIFICATION MODAL ────────────────────────────────────────────────────
+  function showNotifModal() {
+    if (!('Notification' in window)) return;
+    if (Notification.permission !== 'default') { updateNotifBtn(); return; }
+
+    const modal = document.getElementById('notif-modal');
+    modal.style.display = 'flex';
+
+    document.getElementById('notif-modal-allow').onclick = async () => {
+      modal.style.display = 'none';
+      const result = await Notification.requestPermission();
+      updateNotifBtn();
+      if (result === 'granted') showToast('MessageX', 'Notifications enabled!', 'System');
+    };
+
+    document.getElementById('notif-modal-skip').onclick = () => {
+      modal.style.display = 'none';
+      updateNotifBtn();
+    };
+  }
+
+  // ─── NOTIFICATION BUTTON ───────────────────────────────────────────────────
+  function updateNotifBtn() {
+    const btn = document.getElementById('notif-btn');
+    if (!('Notification' in window)) { btn.style.display = 'none'; return; }
+    if (Notification.permission === 'granted') {
+      btn.textContent = '🔔 Notifications on';
+      btn.style.opacity = '0.45';
+      btn.style.cursor = 'default';
+      btn.onclick = null;
+    } else if (Notification.permission === 'denied') {
+      btn.textContent = '🔕 Notifications blocked';
+      btn.style.opacity = '0.45';
+      btn.style.cursor = 'default';
+      btn.onclick = null;
+    } else {
+      btn.innerHTML = '&#128276; Enable notifications';
+      btn.style.opacity = '1';
+      btn.style.cursor = 'pointer';
+      btn.onclick = async () => {
+        const result = await Notification.requestPermission();
+        updateNotifBtn();
+        if (result === 'granted') showToast('MessageX', 'Notifications enabled!', 'System');
+      };
+    }
+  }
+
+  // ─── TOAST ─────────────────────────────────────────────────────────────────
+  function showToast(sender, text, chatName) {
+    const container = document.getElementById('toast-container');
+    const preview = text ? text.slice(0, 20) + (text.length > 20 ? '\u2026' : '') : '\uD83D\uDCCE Media';
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.innerHTML = `
+      <div class="toast-header">
+        <span>@${escapeHtml(sender)}</span>
+        <span class="toast-label">${escapeHtml(chatName)}</span>
+      </div>
+      <div class="toast-body">${escapeHtml(preview)}</div>
+    `;
+    container.appendChild(toast);
+    setTimeout(() => {
+      toast.classList.add('toast-out');
+      toast.addEventListener('animationend', () => toast.remove(), { once: true });
+    }, 4000);
+  }
+
+  // ─── BROWSER NOTIFICATION ──────────────────────────────────────────────────
+  function fireBrowserNotif(sender, text, chatName) {
+    if (Notification.permission !== 'granted') return;
+    if (document.visibilityState === 'visible') return;
+    const preview = text ? text.slice(0, 20) + (text.length > 20 ? '\u2026' : '') : 'Sent media';
+    new Notification('MessageX \u2014 @' + sender + ' in ' + chatName, { body: preview });
+  }
+
+  // ─── STATE: user's chat map for notifications ───────────────────────────────
+  let userChatMap = {};
+  let globalNotifChannel = null;
+
   // ─── SETUP ─────────────────────────────────────────────────────────────────
   async function setup() {
     document.getElementById('current-username-label').textContent = '@' + user;
-    loadChats();
+    updateNotifBtn();
+    showNotifModal();
+    await loadChats();
+    startGlobalNotifSubscription();
 
     supabase.channel('public:chats')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, loadChats)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, async () => {
+        await loadChats();
+        startGlobalNotifSubscription();
+      })
+      .subscribe();
+  }
+
+  // ─── GLOBAL NOTIFICATION SUBSCRIPTION ─────────────────────────────────────
+  async function startGlobalNotifSubscription() {
+    if (globalNotifChannel) {
+      await supabase.removeChannel(globalNotifChannel);
+    }
+    globalNotifChannel = supabase.channel('global:notifs')
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'messages'
+      }, (payload) => {
+        const m = payload.new;
+        if (m.sender === user) return;
+        if (!(m.chat_id in userChatMap)) return;
+        const chat = userChatMap[m.chat_id];
+        showToast(m.sender, m.text, chat.name);
+        fireBrowserNotif(m.sender, m.text, chat.name);
+      })
       .subscribe();
   }
 
@@ -882,6 +1115,10 @@ body {
     const { data } = await supabase
       .from('chats').select('*')
       .contains('members', [user]);
+
+    // Keep an up-to-date map for notification filtering
+    userChatMap = {};
+    (data || []).forEach(c => { userChatMap[c.id] = c; });
 
     const privateList = document.getElementById('private-chat-list');
     const groupList   = document.getElementById('group-chat-list');
@@ -938,6 +1175,14 @@ body {
         renderMessage(payload.new);
         scrollToBottom();
       })
+      .on('postgres_changes', {
+        event: 'DELETE', schema: 'public', table: 'messages',
+        filter: `chat_id=eq.${c.id}`
+      }, (payload) => {
+        // Remove the deleted message wrapper from the DOM
+        const wrapper = document.querySelector(`[data-msg-id="${payload.old.id}"]`);
+        if (wrapper) wrapper.remove();
+      })
       .subscribe();
 
     loadChats();
@@ -956,11 +1201,44 @@ body {
     scrollToBottom();
   }
 
+  // ─── DELETE MESSAGE ────────────────────────────────────────────────────────
+  async function deleteMessage(msgId, wrapperEl) {
+    if (!confirm('Delete this message?')) return;
+
+    const { error } = await supabase
+      .from('messages')
+      .delete()
+      .eq('id', msgId)
+      .eq('sender', user); // extra safety: only delete your own
+
+    if (error) {
+      alert('Could not delete message: ' + error.message);
+    } else {
+      wrapperEl.remove(); // instantly remove from local UI
+    }
+  }
+
   // ─── RENDER ONE MESSAGE ────────────────────────────────────────────────────
   function renderMessage(m) {
     const container = document.getElementById('messages');
     const isMe = m.sender === user;
 
+    // Outer wrapper (flex row with optional delete btn)
+    const wrapper = document.createElement('div');
+    wrapper.className = `message-wrapper ${isMe ? 'me' : 'other'}`;
+    wrapper.dataset.msgId = m.id;
+
+    // Delete button (only for sender's own messages)
+    if (isMe) {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'delete-msg-btn';
+      delBtn.title = 'Delete message';
+      delBtn.innerHTML = '&#x2715;';
+      delBtn.onclick = () => deleteMessage(m.id, wrapper);
+      wrapper.appendChild(delBtn);
+    }
+
+    // Message bubble
     const div = document.createElement('div');
     div.className = `message ${isMe ? 'me' : 'other'}`;
 
@@ -999,7 +1277,8 @@ body {
     const img = div.querySelector('img.msg-image');
     if (img) img.addEventListener('click', () => openLightbox(img.dataset.full));
 
-    container.appendChild(div);
+    wrapper.appendChild(div);
+    container.appendChild(wrapper);
   }
 
   // ─── FILE ATTACHMENT UI ────────────────────────────────────────────────────
@@ -1091,7 +1370,7 @@ body {
       }
     }
 
-    // Also add sender to chat members if not already there (prevents future disappearing)
+    // Also add sender to chat members if not already there
     if (activeChat && !activeChat.members.includes(user)) {
       const updated = [...activeChat.members, user];
       await supabase.from('chats').update({ members: updated }).eq('id', activeId);
@@ -1127,7 +1406,6 @@ body {
     const name = prompt('Enter chat or group name:');
     if (!name || !name.trim()) return;
 
-    // Check if the chat name matches an existing username — if so, add them too
     const { data: profile } = await supabase
       .from('profiles').select('username').eq('username', name.trim().toLowerCase()).single();
 
